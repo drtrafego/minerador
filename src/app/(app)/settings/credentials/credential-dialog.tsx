@@ -22,6 +22,7 @@ const providers = [
   { value: "google_oauth", label: "Google OAuth (Gmail)" },
   { value: "google_places", label: "Google Places" },
   { value: "instagram_session", label: "Instagram Session" },
+  { value: "whatsapp_api", label: "WhatsApp API (Meta Cloud)" },
 ];
 
 export function CredentialDialog() {

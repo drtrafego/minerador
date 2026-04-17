@@ -16,6 +16,7 @@ export const outreachChannelEnum = ms.enum("outreach_channel", [
   "instagram_dm",
   "email",
   "linkedin_dm",
+  "whatsapp",
 ]);
 
 export const outreachThreadStatusEnum = ms.enum("outreach_thread_status", [

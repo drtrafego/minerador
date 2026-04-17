@@ -40,13 +40,24 @@ import {
   loadBrowserSession,
   markBrowserSessionStale,
 } from "@/lib/clients/browser/storage";
+import {
+  sendWhatsAppQRMessage,
+  WhatsAppNotConnectedError,
+  WhatsAppPhoneNotFoundError,
+} from "@/lib/clients/whatsapp-qr";
+import {
+  sendWhatsAppAPIMessage,
+  loadWhatsAppAPICredential,
+  WhatsAppAPINotConfiguredError,
+  WhatsAppAPIError,
+} from "@/lib/clients/whatsapp-api";
 
 const MAX_ATTEMPTS = 3;
 
 type CampaignRow = typeof campaigns.$inferSelect;
 type ThreadRow = typeof outreachThreads.$inferSelect;
 type LeadRow = typeof leadsTable.$inferSelect;
-type DbOutreachChannel = "email" | "instagram_dm" | "linkedin_dm";
+type DbOutreachChannel = "email" | "instagram_dm" | "linkedin_dm" | "whatsapp";
 
 function tryLockQueueItem(queueItemId: string) {
   const lockUntil = new Date(Date.now() + 5 * 60 * 1000);
@@ -772,6 +783,131 @@ export async function handleOutreachSend(
           durationMs: Date.now() - liStartedAt,
           errorReason: liErrMsg,
         });
+
+        throw err;
+      }
+    }
+
+    if (channel === "whatsapp") {
+      if (!lead.phone) {
+        await markMessageFailed(message.id, "lead sem numero de telefone");
+        await markQueueFailed(queueItemId, "lead sem numero de telefone");
+        await db
+          .update(outreachThreads)
+          .set({ status: "failed", updatedAt: new Date() })
+          .where(eq(outreachThreads.id, threadId));
+        return;
+      }
+
+      const now = new Date();
+      try {
+        const apiCred = await loadWhatsAppAPICredential(organizationId);
+        let waMessageId: string;
+
+        if (apiCred) {
+          const result = await sendWhatsAppAPIMessage({
+            organizationId,
+            phone: lead.phone,
+            body: message.body,
+          });
+          waMessageId = result.messageId;
+        } else {
+          const result = await sendWhatsAppQRMessage({
+            organizationId,
+            phone: lead.phone,
+            body: message.body,
+          });
+          waMessageId = result.messageId;
+        }
+
+        await db
+          .update(outreachMessages)
+          .set({
+            status: "sent",
+            externalMessageId: waMessageId,
+            sentAt: now,
+            updatedAt: now,
+          })
+          .where(eq(outreachMessages.id, message.id));
+
+        const followUpSeq = parseFollowUpSequence(campaign?.followUpSequence ?? []);
+        const newStatus =
+          step < followUpSeq.length - 1 ? "active" : "awaiting_reply";
+        await db
+          .update(outreachThreads)
+          .set({
+            status: newStatus,
+            lastMessageAt: now,
+            lastOutboundAt: now,
+            updatedAt: now,
+          })
+          .where(eq(outreachThreads.id, threadId));
+
+        await db
+          .update(outreachQueue)
+          .set({ status: "sent", updatedAt: now })
+          .where(eq(outreachQueue.id, queueItemId));
+
+        if (thread.campaignId) {
+          await incrementSendCount(
+            organizationId,
+            thread.campaignId,
+            "whatsapp" as OutreachChannel,
+          );
+        }
+        await scheduleNextFollowUp({
+          thread,
+          step,
+          channel,
+          subject: message.subject ?? "",
+          lead,
+          campaign,
+          now,
+        });
+        return;
+      } catch (err) {
+        if (
+          err instanceof WhatsAppNotConnectedError ||
+          err instanceof WhatsAppAPINotConfiguredError
+        ) {
+          const retryAt = new Date(Date.now() + 60 * 60 * 1000);
+          await db
+            .update(outreachQueue)
+            .set({
+              status: "pending",
+              lockedUntil: null,
+              scheduledAt: retryAt,
+              attempts: attempts + 1,
+              lastError: err.message,
+              updatedAt: new Date(),
+            })
+            .where(eq(outreachQueue.id, queueItemId));
+          return;
+        }
+
+        if (err instanceof WhatsAppPhoneNotFoundError) {
+          await markMessageFailed(message.id, "numero nao encontrado");
+          await markQueueFailed(queueItemId, "numero nao encontrado");
+          await db
+            .update(outreachThreads)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(outreachThreads.id, threadId));
+          return;
+        }
+
+        if (
+          err instanceof WhatsAppAPIError &&
+          err.statusCode >= 400 &&
+          err.statusCode < 500
+        ) {
+          await markMessageFailed(message.id, err.message);
+          await markQueueFailed(queueItemId, err.message);
+          await db
+            .update(outreachThreads)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(outreachThreads.id, threadId));
+          return;
+        }
 
         throw err;
       }

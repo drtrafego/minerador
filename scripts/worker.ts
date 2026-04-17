@@ -16,6 +16,7 @@ import { handleQualifyBatch } from "@/lib/queue/handlers/qualify";
 import { handleOutreachEnqueue } from "@/lib/queue/handlers/outreach-enqueue";
 import { handleOutreachSend } from "@/lib/queue/handlers/outreach-send";
 import { handleOutreachTick } from "@/lib/queue/handlers/outreach-tick";
+import { closeAllWhatsAppSockets } from "@/lib/clients/whatsapp-qr";
 import type {
   QualifyBatchPayload,
   ScrapeIngestPayload,
@@ -156,6 +157,7 @@ async function main() {
   const shutdown = async () => {
     console.log("[worker] desligando");
     try {
+      await closeAllWhatsAppSockets();
       await boss.stop({ graceful: true, close: true });
     } catch (err) {
       console.error("[worker] erro ao desligar", err);

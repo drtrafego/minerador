@@ -16,6 +16,8 @@ export const credentialProviderEnum = ms.enum("credential_provider", [
   "instagram_session",
   "linkedin_session",
   "proxycurl",
+  "whatsapp_session",
+  "whatsapp_api",
 ]);
 
 export const credentials = ms.table(
