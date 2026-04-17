@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# docker / db
+/postgres-data
+/postgres-data-dev
+
+# drizzle snapshots cache
+/drizzle/meta/_journal.json.bak
+
+# ide
+.vscode
+.idea
+
