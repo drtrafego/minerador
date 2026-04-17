@@ -15,6 +15,7 @@ const providerEnum = z.enum([
   "google_places",
   "instagram_session",
   "whatsapp_api",
+  "whatsapp_uazapi",
 ]);
 
 const createSchema = z.object({

@@ -51,6 +51,13 @@ import {
   WhatsAppAPINotConfiguredError,
   WhatsAppAPIError,
 } from "@/lib/clients/whatsapp-api";
+import {
+  sendUazAPIMessage,
+  loadUazAPICredential,
+  UazAPINotConfiguredError,
+  UazAPIError,
+  UazAPIPhoneNotFoundError,
+} from "@/lib/clients/whatsapp-uazapi";
 
 const MAX_ATTEMPTS = 3;
 
@@ -802,16 +809,27 @@ export async function handleOutreachSend(
       const now = new Date();
       try {
         const apiCred = await loadWhatsAppAPICredential(organizationId);
+        const uazapiCred = apiCred ? null : await loadUazAPICredential(organizationId);
         let waMessageId: string;
 
         if (apiCred) {
+          // Prioridade 1: Meta Cloud API oficial
           const result = await sendWhatsAppAPIMessage({
             organizationId,
             phone: lead.phone,
             body: message.body,
           });
           waMessageId = result.messageId;
+        } else if (uazapiCred) {
+          // Prioridade 2: UazAPI (self-hosted ou cloud)
+          const result = await sendUazAPIMessage({
+            organizationId,
+            phone: lead.phone,
+            body: message.body,
+          });
+          waMessageId = result.messageId;
         } else {
+          // Prioridade 3: Baileys QR direto
           const result = await sendWhatsAppQRMessage({
             organizationId,
             phone: lead.phone,
@@ -882,6 +900,44 @@ export async function handleOutreachSend(
               updatedAt: new Date(),
             })
             .where(eq(outreachQueue.id, queueItemId));
+          return;
+        }
+
+        if (
+          err instanceof UazAPINotConfiguredError
+        ) {
+          const retryAt = new Date(Date.now() + 60 * 60 * 1000);
+          await db
+            .update(outreachQueue)
+            .set({
+              status: "pending",
+              lockedUntil: null,
+              scheduledAt: retryAt,
+              attempts: attempts + 1,
+              lastError: err.message,
+              updatedAt: new Date(),
+            })
+            .where(eq(outreachQueue.id, queueItemId));
+          return;
+        }
+
+        if (err instanceof UazAPIPhoneNotFoundError) {
+          await markMessageFailed(message.id, "numero nao encontrado");
+          await markQueueFailed(queueItemId, "numero nao encontrado");
+          await db
+            .update(outreachThreads)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(outreachThreads.id, threadId));
+          return;
+        }
+
+        if (err instanceof UazAPIError && err.statusCode >= 400 && err.statusCode < 500) {
+          await markMessageFailed(message.id, err.message);
+          await markQueueFailed(queueItemId, err.message);
+          await db
+            .update(outreachThreads)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(outreachThreads.id, threadId));
           return;
         }
 

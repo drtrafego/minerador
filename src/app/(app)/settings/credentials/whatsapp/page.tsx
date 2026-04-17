@@ -1,5 +1,6 @@
 import { requireOrg } from "@/lib/auth/guards";
 import { loadWhatsAppAPICredential } from "@/lib/clients/whatsapp-api";
+import { loadUazAPICredential, getUazAPIStatus } from "@/lib/clients/whatsapp-uazapi";
 import { db } from "@/lib/db/client";
 import { credentials } from "@/db/schema/credentials";
 import { decryptCredential } from "@/lib/crypto/credentials";
@@ -38,10 +39,15 @@ async function getQRStatus(organizationId: string) {
 export default async function WhatsAppSettingsPage() {
   const { organizationId } = await requireOrg();
 
-  const [qrStatus, apiCred] = await Promise.all([
+  const [qrStatus, apiCred, uazapiCred] = await Promise.all([
     getQRStatus(organizationId),
     loadWhatsAppAPICredential(organizationId),
+    loadUazAPICredential(organizationId),
   ]);
+
+  const uazapiStatus = uazapiCred
+    ? await getUazAPIStatus(uazapiCred.cred)
+    : null;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://seu-dominio.com";
 
@@ -85,6 +91,66 @@ export default async function WhatsAppSettingsPage() {
             <p className="text-muted-foreground mb-1">Comando de login:</p>
             <code className="block bg-muted rounded px-3 py-2 text-xs select-all">
               pnpm whatsapp:login --org {organizationId}
+            </code>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">WhatsApp UazAPI (self-hosted)</CardTitle>
+            <Badge
+              variant={
+                uazapiStatus === "connected"
+                  ? "default"
+                  : uazapiCred
+                    ? "secondary"
+                    : "secondary"
+              }
+            >
+              {uazapiStatus === "connected"
+                ? "Conectado"
+                : uazapiStatus === "connecting"
+                  ? "Conectando"
+                  : uazapiCred
+                    ? "Configurado"
+                    : "Nao configurado"}
+            </Badge>
+          </div>
+          <CardDescription>
+            API REST auto-hospedada (ou cloud UazAPI). Prioridade 2 apos Meta API.
+            Conecta via QR no painel do UazAPI.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {uazapiCred ? (
+            <div className="flex gap-2">
+              <span className="text-muted-foreground">Base URL:</span>
+              <span>{uazapiCred.cred.base_url}</span>
+            </div>
+          ) : (
+            <>
+              <p className="text-muted-foreground">
+                Adicione via botao &quot;Adicionar credential&quot; com provider{" "}
+                <code className="bg-muted px-1 rounded">whatsapp_uazapi</code>:
+              </p>
+              <pre className="bg-muted rounded px-3 py-2 text-xs overflow-x-auto">
+                {JSON.stringify(
+                  {
+                    base_url: "https://focus.uazapi.com",
+                    instance_token: "SEU_INSTANCE_TOKEN",
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
+            </>
+          )}
+          <div className="pt-2 border-t">
+            <p className="text-muted-foreground mb-1">URL do Webhook (UazAPI):</p>
+            <code className="block bg-muted rounded px-3 py-2 text-xs select-all">
+              {appUrl}/api/webhooks/whatsapp
             </code>
           </div>
         </CardContent>

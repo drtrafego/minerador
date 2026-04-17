@@ -5,6 +5,7 @@ import { outreachThreads, outreachMessages } from "@/db/schema/outreach";
 import { decryptCredential } from "@/lib/crypto/credentials";
 import { eq, and } from "drizzle-orm";
 import type { WhatsAppAPICredential } from "@/lib/clients/whatsapp-api";
+import type { UazAPICredential } from "@/lib/clients/whatsapp-uazapi";
 
 // GET: verificação do webhook pelo Meta
 export async function GET(req: NextRequest) {
@@ -19,21 +20,97 @@ export async function GET(req: NextRequest) {
   return Response.json({ error: "forbidden" }, { status: 403 });
 }
 
-// POST: mensagens inbound
+async function processInboundMessage(params: {
+  organizationId: string;
+  from: string;
+  body: string;
+  messageId: string;
+}) {
+  const { organizationId, from, body, messageId } = params;
+
+  const thread = await db.query.outreachThreads.findFirst({
+    where: and(
+      eq(outreachThreads.organizationId, organizationId),
+      eq(outreachThreads.externalThreadId, from),
+    ),
+  });
+
+  if (!thread) return;
+
+  await db.insert(outreachMessages).values({
+    organizationId,
+    threadId: thread.id,
+    direction: "inbound",
+    status: "received",
+    step: thread.currentStep,
+    body,
+    externalMessageId: messageId,
+  });
+
+  if (thread.status === "active" || thread.status === "awaiting_reply") {
+    await db
+      .update(outreachThreads)
+      .set({
+        status: "replied",
+        lastInboundAt: new Date(),
+        lastMessageAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(outreachThreads.id, thread.id));
+  }
+}
+
+// POST: mensagens inbound (Meta Cloud API + UazAPI)
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as {
+    const body = await req.json() as Record<string, unknown>;
+
+    // --- Formato UazAPI ---
+    if (typeof body.event === "string" && body.data) {
+      const data = body.data as {
+        from?: string;
+        body?: string;
+        id?: string;
+        type?: string;
+      };
+      if (data.type === "text" && data.from && data.body) {
+        const allUazCreds = await db.query.credentials.findMany({
+          where: eq(credentials.provider, "whatsapp_uazapi"),
+        });
+        for (const row of allUazCreds) {
+          try {
+            await decryptCredential<UazAPICredential>(row.ciphertext);
+            await processInboundMessage({
+              organizationId: row.organizationId,
+              from: data.from,
+              body: data.body,
+              messageId: data.id ?? `uazapi-${Date.now()}`,
+            });
+            break;
+          } catch {}
+        }
+      }
+      return Response.json({ ok: true }, { status: 200 });
+    }
+
+    // --- Formato Meta Cloud API ---
+    const metaBody = body as {
       entry?: {
         changes?: {
           value?: {
             phone_number_id?: string;
-            messages?: { id: string; from: string; text?: { body: string }; type: string }[];
+            messages?: {
+              id: string;
+              from: string;
+              text?: { body: string };
+              type: string;
+            }[];
           };
         }[];
       }[];
     };
 
-    const value = body.entry?.[0]?.changes?.[0]?.value;
+    const value = metaBody.entry?.[0]?.changes?.[0]?.value;
     if (!value?.messages?.length) {
       return Response.json({ ok: true }, { status: 200 });
     }
@@ -44,61 +121,29 @@ export async function POST(req: NextRequest) {
       return Response.json({ ok: true }, { status: 200 });
     }
 
-    // Encontrar qual org tem esse phone_number_id
     const allApiCreds = await db.query.credentials.findMany({
       where: eq(credentials.provider, "whatsapp_api"),
     });
 
-    let organizationId: string | null = null;
     for (const row of allApiCreds) {
       try {
-        const cred = await decryptCredential<WhatsAppAPICredential>(row.ciphertext);
+        const cred = await decryptCredential<WhatsAppAPICredential>(
+          row.ciphertext,
+        );
         if (cred.phone_number_id === phoneNumberId) {
-          organizationId = row.organizationId;
+          await processInboundMessage({
+            organizationId: row.organizationId,
+            from: msg.from,
+            body: msg.text.body,
+            messageId: msg.id,
+          });
           break;
         }
       } catch {}
-    }
-
-    if (!organizationId) {
-      return Response.json({ ok: true }, { status: 200 });
-    }
-
-    // Encontrar thread pelo externalThreadId (número do remetente)
-    const thread = await db.query.outreachThreads.findFirst({
-      where: and(
-        eq(outreachThreads.organizationId, organizationId),
-        eq(outreachThreads.externalThreadId, msg.from),
-      ),
-    });
-
-    if (thread) {
-      await db.insert(outreachMessages).values({
-        organizationId,
-        threadId: thread.id,
-        direction: "inbound",
-        status: "received",
-        step: thread.currentStep,
-        body: msg.text.body,
-        externalMessageId: msg.id,
-      });
-
-      if (thread.status === "active" || thread.status === "awaiting_reply") {
-        await db
-          .update(outreachThreads)
-          .set({
-            status: "replied",
-            lastInboundAt: new Date(),
-            lastMessageAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(outreachThreads.id, thread.id));
-      }
     }
   } catch (err) {
     console.error("[webhook/whatsapp] erro:", err);
   }
 
-  // Meta exige 200 sempre
   return Response.json({ ok: true }, { status: 200 });
 }

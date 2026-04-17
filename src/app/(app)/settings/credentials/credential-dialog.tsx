@@ -23,6 +23,7 @@ const providers = [
   { value: "google_places", label: "Google Places" },
   { value: "instagram_session", label: "Instagram Session" },
   { value: "whatsapp_api", label: "WhatsApp API (Meta Cloud)" },
+  { value: "whatsapp_uazapi", label: "WhatsApp UazAPI (self-hosted)" },
 ];
 
 export function CredentialDialog() {
