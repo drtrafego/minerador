@@ -1,6 +1,6 @@
 # Minerador Claude
 
-App de prospeccao ativa para DR.TRAFEGO. Rastreia leads em Google Maps (Places API) e Instagram (Apify), qualifica com Claude, envia DMs via Playwright e emails via Gmail API, e faz follow up automatico. Multi tenant desde o dia 1. Uso interno mas preparado para virar SaaS.
+App de prospeccao ativa para DR.TRAFEGO. Minera leads em **Google Maps, LinkedIn e Instagram** via Scrapling stealth (Python FastAPI), qualifica com Claude, envia DMs via Playwright, emails via Gmail API, WhatsApp via UazAPI/Meta/Baileys e faz follow up automatico. Responde leads inbound com agente Claude. Multi tenant desde o dia 1.
 
 ## Stack
 
@@ -11,7 +11,44 @@ App de prospeccao ativa para DR.TRAFEGO. Rastreia leads em Google Maps (Places A
 - Better Auth + plugin organization (multi tenant)
 - pg-boss para filas (Postgres)
 - pgcrypto para criptografia de credentials
+- **Scrapling** (Python FastAPI) para scraping stealth
+- **@dnd-kit** para Kanban drag-and-drop
 - pnpm
+
+## Features
+
+### Mineracao
+- **Google Maps**: Scrapling (Playwright + scroll no feed)
+- **LinkedIn**: Scrapling via Google dork (`site:linkedin.com/in`)
+- **Instagram**: Scrapling (StealthyFetcher + endpoint publico)
+- **Import CSV**: `/leads/import` com wizard de mapeamento
+- **Webhook formularios**: `/api/webhooks/forms` para Typeform/Tally/Google Forms/Zapier
+
+### Qualificacao
+- Claude com tool use (decision + score + reason)
+- Temperature automatica: `>= 70 = hot`, `40-69 = warm`, `< 40 = cold`
+- Multi modelo configuravel por campanha
+
+### Pipeline
+- `/pipeline` com Kanban drag-and-drop
+- Etapas customizaveis por organizacao
+- Timeline de atividades por lead (`/leads/[id]`)
+
+### Outreach
+- **Email**: Gmail API
+- **Instagram DM / LinkedIn DM**: Playwright
+- **WhatsApp**: 3 providers (Meta Cloud API, UazAPI self-hosted, Baileys QR)
+- Follow up sequence com IA opcional (smartFollowUp)
+
+### Inbound Agent
+- Responde WhatsApp automaticamente usando Claude
+- Suporta UazAPI e Meta Cloud API (selecionavel)
+- System prompt customizavel em `/settings/agent`
+- Handoff keywords param o agente
+- Limite de respostas automaticas por thread
+
+### Export
+- `/api/leads/export` retorna CSV com filtros (status, campanha)
 
 ## Rodar em desenvolvimento
 
@@ -19,108 +56,134 @@ Pre requisitos: Node 20+, pnpm, Docker Desktop.
 
 ```bash
 cp .env.example .env.local
-# edite .env.local com BETTER_AUTH_SECRET e CREDENTIALS_ENCRYPTION_KEY
+# preencha BETTER_AUTH_SECRET, CREDENTIALS_ENCRYPTION_KEY,
+# SCRAPLING_SHARED_SECRET, FORMS_WEBHOOK_SECRET, ANTHROPIC_API_KEY
+# gere secrets com: openssl rand -hex 32
 
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d   # so Postgres
 pnpm install
-pnpm db:push
+pnpm db:push                                     # aplica schema
 pnpm dev
 ```
 
-Em outro terminal rode o worker das filas:
-
+Em terminais separados:
 ```bash
-pnpm worker
+pnpm worker                                      # filas pg-boss
 ```
 
-Acesse http://localhost:3000, crie conta, crie organizacao e va em Settings para cadastrar credentials (anthropic, apify, google_places).
+Scrapling roda no stack prod (docker compose up scrapling). Em dev,
+desabilite com `SCRAPLING_ENABLED=false` ou suba o container avulso.
 
-## Como rodar o worker
-
-O worker e um processo Node separado que escuta filas pg-boss e executa scraping/qualificacao. Sem ele, campanhas iniciadas ficam paradas.
-
-- Dev: `pnpm worker` em terminal separado
-- Producao Docker: o servico `worker` sobe junto com `docker compose up -d --build`
-
-## Como criar a primeira campanha
-
-1. Cadastre as 3 credentials em /settings/credentials, todas como objeto JSON:
-   - provider `google_places`, payload `{"apiKey":"AIza..."}`
-   - provider `apify`, payload `{"token":"apify_api_..."}`
-   - provider `anthropic`, payload `{"apiKey":"sk-ant-..."}`
-2. Va em /campaigns e clique em "Nova campanha".
-3. Passo 1: nome, nicho e fonte (Google Maps ou Instagram).
-4. Passo 2: parametros da fonte (query, cidade, raio para Maps; busca para Instagram).
-5. Passo 3: ajuste o prompt de qualificacao (template ja preenchido).
-6. Clique em "Criar e comecar". O sistema enfileira o scraping e voce pode acompanhar em /campaigns/[id].
-7. Quando os leads forem ingeridos, o worker chama Claude em batches e os leads aparecem qualificados em /campaigns/[id]/leads.
+Acesse http://localhost:3000, crie conta, crie organizacao e va em
+`/settings/credentials` para cadastrar credentials.
 
 ## Rodar em producao
 
 ```bash
 cp .env.example .env
-# edite .env com valores de producao
+# preencha todos os secrets
 
 docker compose up -d --build
+pnpm db:migrate                                  # uma vez
 ```
 
-O `docker-compose.yml` sobe Postgres + app Next.js buildado. As migrations devem ser aplicadas uma vez via `pnpm db:migrate` contra o container de Postgres.
+Sobe: `postgres`, `app`, `worker`, `scrapling`.
 
-## Variaveis de ambiente
+## Primeira campanha
 
-| Variavel | Obrigatorio | Descricao |
-|----------|-------------|-----------|
-| `DATABASE_URL` | sim | Conexao Postgres |
-| `BETTER_AUTH_SECRET` | sim | Secret do Better Auth (32+ chars) |
-| `BETTER_AUTH_URL` | sim | URL base do app |
-| `APP_URL` | sim | URL publica do app |
-| `NEXT_PUBLIC_APP_URL` | sim | URL publica para o client |
-| `CREDENTIALS_ENCRYPTION_KEY` | sim | Chave de criptografia pgcrypto |
-| `ANTHROPIC_API_KEY` | Fase 1 | Claude API |
-| `APIFY_TOKEN` | Fase 1 | Scraping Instagram |
-| `GOOGLE_PLACES_API_KEY` | Fase 1 | Google Maps |
-| `GOOGLE_OAUTH_*` | Fase 2 | Gmail API |
-| `PGBOSS_SCHEMA` | Fase 1 | Schema do pg-boss |
+1. Cadastre credentials em `/settings/credentials` (payload JSON):
+   - `anthropic` -> `{"apiKey":"sk-ant-..."}`
+   - WhatsApp (opcional): `whatsapp_api` / `whatsapp_uazapi` / `whatsapp_qr`
+2. Em `/campaigns` -> "Nova campanha"
+3. Escolha fonte: Google Maps / Instagram / LinkedIn
+4. Ajuste prompt de qualificacao
+5. Adicione sequencia de follow up
+6. Criar e comecar. Acompanhe em `/campaigns/[id]`
 
 ## Estrutura
 
 ```
 src/
   app/
-    (auth)/          sign-in, sign-up, onboarding
-    (app)/           dashboard, settings (area autenticada)
-    api/auth/        Better Auth handler
+    (auth)/              sign-in, sign-up, onboarding
+    (app)/
+      dashboard/
+      campaigns/         CRUD + wizard
+      leads/             listagem, detalhe, import
+      pipeline/          Kanban drag-and-drop
+      inbox/             conversas outreach
+      settings/
+        credentials/     API keys e sessoes
+        agent/           config do inbound agent
+    api/
+      auth/              Better Auth
+      leads/export/      CSV export
+      webhooks/
+        whatsapp/        Meta Cloud + UazAPI
+        forms/           Typeform/Tally/Google Forms
   components/
-    ui/              shadcn/ui
-    app-sidebar.tsx
-  db/
-    schema/          auth, credentials, campaigns, leads, outreach, jobs, events
+    ui/                  shadcn/ui
+    pipeline/            kanban-board, activity-timeline
+    temperature-badge
+  db/schema/             auth, credentials, campaigns, leads,
+                         outreach, jobs, events, pipeline, agent
   lib/
-    auth/            server, client, guards
-    db/              client, tenant
-    crypto/          credentials (pgcrypto)
-docker/
-  postgres/init/     scripts SQL de inicializacao
-drizzle/             migrations geradas
-docker-compose.yml       stack completa (prod)
+    auth/                server, client, guards
+    clients/             anthropic, google-places, apify,
+                         scrapling, gmail, whatsapp-*,
+                         playwright-instagram, playwright-linkedin
+    queue/
+      client, types
+      handlers/          scrape, ingest, qualify,
+                         outreach-enqueue, outreach-send,
+                         outreach-tick, agent-reply
+    outreach/            template, rate-limit, smart-followup-prompt
+    csv.ts               parse/serialize
+    crypto/              credentials (pgcrypto)
+scrapling/               microservico Python FastAPI
+  app/
+    main.py
+    config, auth, schemas, errors
+    routers/             health, linkedin, google_maps, instagram
+    scrapers/            linkedin_search, google_maps_search,
+                         instagram_search
+  Dockerfile
+  requirements.txt
+  README.md
+docker/postgres/init/    scripts SQL
+drizzle/                 migrations
+docs/                    documentacao especifica por feature
+docker-compose.yml       stack completa (postgres + app + worker + scrapling)
 docker-compose.dev.yml   so Postgres (dev)
-Dockerfile               multi stage Next.js
-drizzle.config.ts
 ```
 
 ## Scripts
 
-- `pnpm dev` roda Next em modo dev
-- `pnpm build` build de producao
-- `pnpm typecheck` checa TypeScript
-- `pnpm db:generate` gera nova migration a partir do schema
-- `pnpm db:push` aplica schema diretamente (dev)
-- `pnpm db:migrate` aplica migrations (prod)
-- `pnpm db:studio` abre o Drizzle Studio
+- `pnpm dev` - Next em dev
+- `pnpm build` - build producao
+- `pnpm typecheck` - TypeScript
+- `pnpm lint` - ESLint
+- `pnpm worker` - processar filas
+- `pnpm db:generate` - gerar migration
+- `pnpm db:push` - aplicar schema (dev)
+- `pnpm db:migrate` - aplicar migrations (prod)
+- `pnpm db:studio` - Drizzle Studio
+
+## Documentacao
+
+- [Variaveis de ambiente](docs/env-vars.md)
+- [Scrapling microservico](docs/scrapling.md) ([README do servico](scrapling/README.md))
+- [Pipeline, temperature e atividades](docs/pipeline.md)
+- [CSV e webhook de formularios](docs/csv-webhook.md)
+- [Inbound agent WhatsApp](docs/agent.md)
+- [Webhooks WhatsApp (Meta + UazAPI)](docs/whatsapp.md)
 
 ## Roadmap
 
-- Fase 0 (atual): fundacao, auth multi tenant, credentials criptografadas
-- Fase 1: scraping Google Places e Apify, qualificacao Claude, inbox
-- Fase 2: envio Instagram DM (Playwright) e Gmail API, follow ups
-- Fase 3: deploy VPS, observabilidade, rate limit global
+- **Fase 0**: fundacao, auth multi tenant, credentials criptografadas - `feito`
+- **Fase 1**: scraping (Scrapling + Apify + Places), qualificacao Claude, inbox - `feito`
+- **Fase 2**: outreach Instagram/LinkedIn/Email/WhatsApp, follow ups, smart AI - `feito`
+- **Fase 3**: Kanban pipeline, lead temperature, activity timeline - `feito`
+- **Fase 4**: CSV import/export, webhook formularios, inbound agent WhatsApp - `feito`
+- **Fase 5**: Observabilidade (tracing, metricas), deploy VPS, rate limit global
+- **SaaS**: billing Stripe, onboarding, quotas por plano

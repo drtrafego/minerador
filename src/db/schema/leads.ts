@@ -28,6 +28,12 @@ export const leadQualificationStatusEnum = ms.enum("lead_qualification_status", 
   "needs_review",
 ]);
 
+export const leadTemperatureEnum = ms.enum("lead_temperature", [
+  "cold",
+  "warm",
+  "hot",
+]);
+
 export const leads = ms.table(
   "leads",
   {
@@ -58,6 +64,8 @@ export const leads = ms.table(
     qualificationReason: text("qualification_reason"),
     qualificationScore: integer("qualification_score"),
     qualifiedAt: timestamp("qualified_at", { withTimezone: true }),
+    temperature: leadTemperatureEnum("temperature"),
+    pipelineStageId: uuid("pipeline_stage_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),

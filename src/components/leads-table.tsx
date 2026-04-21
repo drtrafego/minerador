@@ -23,6 +23,7 @@ import {
   approveLead,
   rejectLead,
 } from "@/app/(app)/campaigns/[id]/leads/actions";
+import { TemperatureBadge } from "@/components/temperature-badge";
 
 type Lead = {
   id: string;
@@ -38,6 +39,7 @@ type Lead = {
   qualificationStatus: string;
   qualificationScore: number | null;
   qualificationReason: string | null;
+  temperature?: "cold" | "warm" | "hot" | null;
 };
 
 type OutreachStatus = {
@@ -158,7 +160,19 @@ export function LeadsTable({
             {leads.map((lead) => (
               <TableRow key={lead.id}>
                 <TableCell className="max-w-xs">
-                  <div className="font-medium">{lead.displayName}</div>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/leads/${lead.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {lead.displayName}
+                    </Link>
+                    <TemperatureBadge
+                      temperature={lead.temperature ?? null}
+                      score={lead.qualificationScore}
+                      compact
+                    />
+                  </div>
                   {lead.handle ? (
                     <div className="text-xs text-muted-foreground">
                       @{lead.handle}

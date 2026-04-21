@@ -40,6 +40,7 @@ export const QUEUES = {
   outreachEnqueue: "outreach.enqueue",
   outreachSend: "outreach.send",
   outreachTick: "outreach.tick",
+  agentReply: "agent.reply",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

@@ -10,6 +10,8 @@ import {
   Settings,
   Globe,
   LogOut,
+  KanbanSquare,
+  Bot,
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,7 +33,9 @@ const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/leads", label: "Leads", icon: Users },
+  { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
   { href: "/inbox", label: "Inbox", icon: Inbox },
+  { href: "/settings/agent", label: "Agente", icon: Bot },
   { href: "/settings/credentials", label: "Settings", icon: Settings },
   {
     href: "/settings/credentials/browser",

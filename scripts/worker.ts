@@ -16,6 +16,7 @@ import { handleQualifyBatch } from "@/lib/queue/handlers/qualify";
 import { handleOutreachEnqueue } from "@/lib/queue/handlers/outreach-enqueue";
 import { handleOutreachSend } from "@/lib/queue/handlers/outreach-send";
 import { handleOutreachTick } from "@/lib/queue/handlers/outreach-tick";
+import { handleAgentReply } from "@/lib/queue/handlers/agent-reply";
 import { closeAllWhatsAppSockets } from "@/lib/clients/whatsapp-qr";
 import type {
   QualifyBatchPayload,
@@ -24,6 +25,7 @@ import type {
   OutreachEnqueuePayload,
   OutreachSendPayload,
   OutreachTickPayload,
+  AgentReplyPayload,
 } from "@/lib/queue/types";
 
 async function main() {
@@ -45,6 +47,7 @@ async function main() {
   await boss.createQueue(QUEUES.outreachEnqueue, queuePolicy);
   await boss.createQueue(QUEUES.outreachSend, queuePolicy);
   await boss.createQueue(QUEUES.outreachTick, queuePolicy);
+  await boss.createQueue(QUEUES.agentReply, queuePolicy);
 
   await boss.work<ScrapeRunPayload>(
     QUEUES.scrapeRun,
@@ -140,6 +143,23 @@ async function main() {
           await handleOutreachTick();
         } catch (err) {
           console.error(`[outreach.tick] erro ${job.id}`, err);
+          throw err;
+        }
+      }
+    },
+  );
+
+  await boss.work<AgentReplyPayload>(
+    QUEUES.agentReply,
+    { batchSize: 2 },
+    async (jobs: Job<AgentReplyPayload>[]) => {
+      for (const job of jobs) {
+        console.log(`[agent.reply] processando ${job.id}`);
+        try {
+          await handleAgentReply(job.data);
+          console.log(`[agent.reply] ok ${job.id}`);
+        } catch (err) {
+          console.error(`[agent.reply] erro ${job.id}`, err);
           throw err;
         }
       }

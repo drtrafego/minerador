@@ -185,12 +185,16 @@ export async function handleQualifyBatch(
     const status =
       decision.decision === "approved" ? "qualified" : "disqualified";
 
+    const temperature: "cold" | "warm" | "hot" =
+      decision.score >= 70 ? "hot" : decision.score >= 40 ? "warm" : "cold";
+
     await db
       .update(leadsTable)
       .set({
         qualificationStatus: status,
         qualificationScore: decision.score,
         qualificationReason: decision.reason,
+        temperature,
         qualifiedAt: now,
         updatedAt: now,
       })

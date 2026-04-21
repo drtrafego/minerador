@@ -20,6 +20,29 @@ services:
     networks:
       - minerador_net
 
+  scrapling:
+    build:
+      context: ./scrapling
+      dockerfile: Dockerfile
+    container_name: minerador_scrapling
+    restart: unless-stopped
+    environment:
+      SCRAPLING_SHARED_SECRET: ${SCRAPLING_SHARED_SECRET}
+      SCRAPLING_LOG_LEVEL: ${SCRAPLING_LOG_LEVEL:-info}
+      SCRAPLING_HEADLESS: "true"
+      SCRAPLING_MAX_CONCURRENCY: ${SCRAPLING_MAX_CONCURRENCY:-2}
+      SCRAPLING_IG_SESSION_COOKIE: ${SCRAPLING_IG_SESSION_COOKIE:-}
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+    shm_size: 1gb
+    networks:
+      - minerador_net
+
   app:
     build:
       context: .
@@ -37,6 +60,8 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY}
       PGBOSS_SCHEMA: ${PGBOSS_SCHEMA:-pgboss}
+      SCRAPLING_URL: ${SCRAPLING_URL:-http://scrapling:8000}
+      SCRAPLING_SHARED_SECRET: ${SCRAPLING_SHARED_SECRET}
     ports:
       - "3000:3000"
     networks:
@@ -51,11 +76,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      scrapling:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-minerador}:${POSTGRES_PASSWORD:-minerador}@postgres:5432/${POSTGRES_DB:-minerador}
       CREDENTIALS_ENCRYPTION_KEY: ${CREDENTIALS_ENCRYPTION_KEY}
       PGBOSS_SCHEMA: ${PGBOSS_SCHEMA:-pgboss}
+      SCRAPLING_URL: ${SCRAPLING_URL:-http://scrapling:8000}
+      SCRAPLING_SHARED_SECRET: ${SCRAPLING_SHARED_SECRET}
     networks:
       - minerador_net
 

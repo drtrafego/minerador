@@ -2,14 +2,13 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/node";
 import { campaignSources } from "@/db/schema/campaigns";
 import { scrapingJobs } from "@/db/schema/jobs";
-import { getOrgCredential } from "@/lib/credentials/get";
-import { searchPlaces } from "@/lib/clients/google-places";
+import type { PlaceLead } from "@/lib/clients/google-places";
+import type { IgLead, LinkedInProfile } from "@/lib/clients/apify";
 import {
-  searchInstagramAndScrape,
-  searchLinkedInProfiles,
-  type IgLead,
-  type LinkedInProfile,
-} from "@/lib/clients/apify";
+  searchLinkedInViaScrapling,
+  searchGoogleMapsViaScrapling,
+  searchInstagramViaScrapling,
+} from "@/lib/clients/scrapling";
 import { getBoss, QUEUES } from "@/lib/queue/client";
 import type {
   NormalizedLead,
@@ -24,7 +23,7 @@ type GooglePlacesConfig = {
   maxResults?: number;
 };
 
-type ApifyInstagramConfig = {
+type InstagramConfig = {
   search: string;
   maxResults?: number;
 };
@@ -32,6 +31,7 @@ type ApifyInstagramConfig = {
 type LinkedInSearchConfig = {
   query: string;
   maxResults?: number;
+  location?: string;
 };
 
 function isGooglePlacesConfig(c: unknown): c is GooglePlacesConfig {
@@ -42,7 +42,7 @@ function isGooglePlacesConfig(c: unknown): c is GooglePlacesConfig {
   );
 }
 
-function isApifyInstagramConfig(c: unknown): c is ApifyInstagramConfig {
+function isInstagramConfig(c: unknown): c is InstagramConfig {
   return (
     typeof c === "object" &&
     c !== null &&
@@ -56,6 +56,35 @@ function isLinkedInSearchConfig(c: unknown): c is LinkedInSearchConfig {
     c !== null &&
     typeof (c as Record<string, unknown>).query === "string"
   );
+}
+
+async function fetchGooglePlaces(cfg: GooglePlacesConfig): Promise<PlaceLead[]> {
+  return searchGoogleMapsViaScrapling({
+    query: cfg.query,
+    location: cfg.location,
+    maxResults: cfg.maxResults ?? 60,
+  });
+}
+
+async function fetchInstagramProfiles(
+  cfg: InstagramConfig,
+  searchType: "user" | "hashtag",
+): Promise<IgLead[]> {
+  return searchInstagramViaScrapling({
+    search: cfg.search,
+    searchType,
+    maxResults: cfg.maxResults ?? 30,
+  });
+}
+
+async function fetchLinkedInProfiles(
+  cfg: LinkedInSearchConfig,
+): Promise<LinkedInProfile[]> {
+  return searchLinkedInViaScrapling({
+    query: cfg.query,
+    maxResults: cfg.maxResults ?? 50,
+    location: cfg.location ?? null,
+  });
 }
 
 export async function handleScrapeRun(payload: ScrapeRunPayload): Promise<void> {
@@ -101,14 +130,7 @@ export async function handleScrapeRun(payload: ScrapeRunPayload): Promise<void> 
       if (!isGooglePlacesConfig(source.config)) {
         throw new Error("config invalida para google_places");
       }
-      const cred = await getOrgCredential(organizationId, "google_places");
-      const places = await searchPlaces({
-        query: source.config.query,
-        location: source.config.location,
-        radius: source.config.radius,
-        maxResults: source.config.maxResults ?? 60,
-        apiKey: cred.apiKey,
-      });
+      const places = await fetchGooglePlaces(source.config);
       leads = places.map((p) => ({
         source: "google_places",
         externalId: p.placeId,
@@ -127,16 +149,13 @@ export async function handleScrapeRun(payload: ScrapeRunPayload): Promise<void> 
       source.type === "instagram_hashtag" ||
       source.type === "instagram_profile"
     ) {
-      if (!isApifyInstagramConfig(source.config)) {
-        throw new Error("config invalida para apify_instagram");
+      if (!isInstagramConfig(source.config)) {
+        throw new Error("config invalida para instagram");
       }
-      const cred = await getOrgCredential(organizationId, "apify");
-      const profiles = await searchInstagramAndScrape({
-        token: cred.token,
-        search: source.config.search,
-        maxResults: source.config.maxResults ?? 30,
-      });
-      leads = profiles.map((p: IgLead) => ({
+      const searchType =
+        source.type === "instagram_hashtag" ? "hashtag" : "user";
+      const profiles = await fetchInstagramProfiles(source.config, searchType);
+      leads = profiles.map((p) => ({
         source: "instagram",
         externalId: p.username,
         displayName: p.fullName ?? p.username,
@@ -154,13 +173,8 @@ export async function handleScrapeRun(payload: ScrapeRunPayload): Promise<void> 
       if (!isLinkedInSearchConfig(source.config)) {
         throw new Error("config invalida para linkedin_search");
       }
-      const cred = await getOrgCredential(organizationId, "apify");
-      const profiles = await searchLinkedInProfiles({
-        token: cred.token,
-        query: source.config.query,
-        maxResults: source.config.maxResults ?? 50,
-      });
-      leads = profiles.map((p: LinkedInProfile) => ({
+      const profiles = await fetchLinkedInProfiles(source.config);
+      leads = profiles.map((p) => ({
         source: "linkedin",
         externalId: p.publicIdentifier,
         displayName: p.fullName ?? p.publicIdentifier,

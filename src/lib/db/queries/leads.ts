@@ -37,3 +37,21 @@ export async function listLeads(opts: {
 
   return rows.map((r) => ({ ...r.lead, campaignName: r.campaignName }));
 }
+
+export async function getLead(opts: {
+  organizationId: string;
+  leadId: string;
+}): Promise<LeadRow | null> {
+  const rows = await db
+    .select({
+      lead: leads,
+      campaignName: campaigns.name,
+    })
+    .from(leads)
+    .leftJoin(campaigns, eq(leads.campaignId, campaigns.id))
+    .where(and(eq(leads.organizationId, opts.organizationId), eq(leads.id, opts.leadId)))
+    .limit(1);
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return { ...r.lead, campaignName: r.campaignName };
+}

@@ -46,3 +46,9 @@ export type OutreachSendPayload = {
 };
 
 export type OutreachTickPayload = Record<string, never>;
+
+export type AgentReplyPayload = {
+  organizationId: string;
+  threadId: string;
+  inboundMessageId: string;
+};

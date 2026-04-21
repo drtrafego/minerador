@@ -3,6 +3,8 @@ export * from "./auth";
 export * from "./credentials";
 export * from "./campaigns";
 export * from "./leads";
+export * from "./pipeline";
+export * from "./agent";
 export * from "./outreach";
 export * from "./browser-runs";
 export * from "./jobs";

@@ -2,10 +2,13 @@ import { NextRequest } from "next/server";
 import { db } from "@/lib/db/client";
 import { credentials } from "@/db/schema/credentials";
 import { outreachThreads, outreachMessages } from "@/db/schema/outreach";
+import { agentConfigs } from "@/db/schema/agent";
 import { decryptCredential } from "@/lib/crypto/credentials";
 import { eq, and } from "drizzle-orm";
 import type { WhatsAppAPICredential } from "@/lib/clients/whatsapp-api";
 import type { UazAPICredential } from "@/lib/clients/whatsapp-uazapi";
+import { getBoss, QUEUES } from "@/lib/queue/client";
+import type { AgentReplyPayload } from "@/lib/queue/types";
 
 // GET: verificação do webhook pelo Meta
 export async function GET(req: NextRequest) {
@@ -37,15 +40,18 @@ async function processInboundMessage(params: {
 
   if (!thread) return;
 
-  await db.insert(outreachMessages).values({
-    organizationId,
-    threadId: thread.id,
-    direction: "inbound",
-    status: "received",
-    step: thread.currentStep,
-    body,
-    externalMessageId: messageId,
-  });
+  const [inserted] = await db
+    .insert(outreachMessages)
+    .values({
+      organizationId,
+      threadId: thread.id,
+      direction: "inbound",
+      status: "received",
+      step: thread.currentStep,
+      body,
+      externalMessageId: messageId,
+    })
+    .returning({ id: outreachMessages.id });
 
   if (thread.status === "active" || thread.status === "awaiting_reply") {
     await db
@@ -57,6 +63,28 @@ async function processInboundMessage(params: {
         updatedAt: new Date(),
       })
       .where(eq(outreachThreads.id, thread.id));
+  }
+
+  if (!inserted) return;
+
+  const [config] = await db
+    .select({ enabled: agentConfigs.enabled })
+    .from(agentConfigs)
+    .where(eq(agentConfigs.organizationId, organizationId))
+    .limit(1);
+
+  if (config?.enabled) {
+    try {
+      const boss = await getBoss();
+      const payload: AgentReplyPayload = {
+        organizationId,
+        threadId: thread.id,
+        inboundMessageId: inserted.id,
+      };
+      await boss.send(QUEUES.agentReply, payload);
+    } catch (err) {
+      console.error("[webhook/whatsapp] falha ao enfileirar agent.reply", err);
+    }
   }
 }
 

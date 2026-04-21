@@ -43,11 +43,34 @@ export default async function LeadsPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Leads</h1>
-        <p className="text-sm text-muted-foreground">
-          Todos os leads minerados pela organizacao.
-        </p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Leads</h1>
+          <p className="text-sm text-muted-foreground">
+            Todos os leads minerados pela organizacao.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/leads/import"
+            className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            Importar CSV
+          </Link>
+          <a
+            href={`/api/leads/export${
+              statusParam || campaignParam
+                ? `?${new URLSearchParams({
+                    ...(statusParam ? { status: statusParam } : {}),
+                    ...(campaignParam ? { campaign: campaignParam } : {}),
+                  }).toString()}`
+                : ""
+            }`}
+            className="inline-flex items-center rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            Exportar CSV
+          </a>
+        </div>
       </div>
 
       <div className="space-y-3">

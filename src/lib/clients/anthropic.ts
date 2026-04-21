@@ -221,3 +221,53 @@ export async function generateSmartFollowUp(
 
   return parts.join("").trim();
 }
+
+export type AgentMessage = { role: "user" | "assistant"; content: string };
+
+export type AgentReplyInput = {
+  organizationId: string;
+  systemPrompt: string;
+  messages: AgentMessage[];
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+};
+
+export type AgentReplyResult = {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  model: string;
+};
+
+export async function generateAgentReply(
+  input: AgentReplyInput,
+): Promise<AgentReplyResult> {
+  const cred = await getOrgCredential(input.organizationId, "anthropic");
+  const client = new Anthropic({ apiKey: cred.apiKey });
+
+  const response = await client.messages.create({
+    model: input.model,
+    max_tokens: input.maxTokens ?? 600,
+    temperature: input.temperature ?? 0.6,
+    system: input.systemPrompt,
+    messages: input.messages,
+  });
+
+  const parts: string[] = [];
+  for (const block of response.content) {
+    if (block.type === "text") parts.push(block.text);
+  }
+  const text = parts.join("").trim();
+
+  const inputTokens = response.usage.input_tokens;
+  const outputTokens = response.usage.output_tokens;
+  return {
+    text,
+    inputTokens,
+    outputTokens,
+    costUsd: computeCostUsd(input.model, inputTokens, outputTokens),
+    model: input.model,
+  };
+}
