@@ -60,19 +60,23 @@ cp .env.example .env.local
 # SCRAPLING_SHARED_SECRET, FORMS_WEBHOOK_SECRET, ANTHROPIC_API_KEY
 # gere secrets com: openssl rand -hex 32
 
-docker compose -f docker-compose.dev.yml up -d   # so Postgres
+docker compose -f docker-compose.dev.yml up -d   # Postgres + Scrapling
 pnpm install
-pnpm db:push                                     # aplica schema
+pnpm db:migrate                                  # aplica schema
 pnpm dev
 ```
 
-Em terminais separados:
+Em terminal separado:
 ```bash
 pnpm worker                                      # filas pg-boss
 ```
 
-Scrapling roda no stack prod (docker compose up scrapling). Em dev,
-desabilite com `SCRAPLING_ENABLED=false` ou suba o container avulso.
+O `docker-compose.dev.yml` ja sobe o Scrapling (Python FastAPI) na porta 8000
+junto com o Postgres. O `.env.local` ja aponta `SCRAPLING_URL=http://localhost:8000`
+e `SCRAPLING_SHARED_SECRET=dev_scrapling_secret_local` por padrao.
+
+> A primeira vez que o Docker buildar o container Scrapling demora ~3-5 min
+> (instala Playwright + Chromium). As proximas inicializacoes sao rapidas.
 
 Acesse http://localhost:3000, crie conta, crie organizacao e va em
 `/settings/credentials` para cadastrar credentials.
